@@ -153,11 +153,14 @@ public abstract class CcLibrary implements RuleConfiguredTargetFactory {
 
     ImmutableList<TransitiveInfoCollection> deps =
         ImmutableList.copyOf(ruleContext.getPrerequisites("deps"));
+    ImmutableList<TransitiveInfoCollection> compileOnlyDeps =
+        ImmutableList.copyOf(ruleContext.getPrerequisites("compile_only_deps"));
     if (ruleContext.hasErrors()) {
       addEmptyRequiredProviders(targetBuilder);
       return;
     }
     Iterable<CcInfo> ccInfosFromDeps = AnalysisUtils.getProviders(deps, CcInfo.PROVIDER);
+    Iterable<CcInfo> ccInfosFromCompileOnlyDeps = AnalysisUtils.getProviders(compileOnlyDeps, CcInfo.PROVIDER);
     CcCompilationHelper compilationHelper =
         new CcCompilationHelper(
                 ruleContext,
@@ -182,6 +185,10 @@ public abstract class CcLibrary implements RuleConfiguredTargetFactory {
                     .collect(ImmutableList.toImmutableList()))
             .addCcCompilationContexts(
                 ImmutableList.of(CcCompilationHelper.getStlCcCompilationContext(ruleContext)))
+            .addCompileActionCcCompilationContexts(
+                Streams.stream(ccInfosFromCompileOnlyDeps)
+                    .map(CcInfo::getCcCompilationContext)
+                    .collect(ImmutableList.toImmutableList()))
             .setHeadersCheckingMode(semantics.determineHeadersCheckingMode(ruleContext));
 
     CcLinkingHelper linkingHelper =
@@ -200,6 +207,9 @@ public abstract class CcLibrary implements RuleConfiguredTargetFactory {
                 TargetUtils.getExecutionInfo(
                     ruleContext.getRule(), ruleContext.isAllowTagsPropagation()))
             .fromCommon(ruleContext, common)
+            .addCcLinkingContexts(
+                CppHelper.getLinkingContextsFromDeps(
+                    ImmutableList.copyOf(ruleContext.getPrerequisites("compile_only_deps"))))
             .setGrepIncludes(CppHelper.getGrepIncludes(ruleContext))
             .setTestOrTestOnlyTarget(ruleContext.isTestOnlyTarget())
             .addLinkopts(common.getLinkopts())

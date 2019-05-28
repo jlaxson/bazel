@@ -256,6 +256,7 @@ public final class CcCompilationHelper {
   private final Set<String> defines = new LinkedHashSet<>();
   private final Set<String> localDefines = new LinkedHashSet<>();
   private final List<CcCompilationContext> ccCompilationContexts = new ArrayList<>();
+  private final List<CcCompilationContext> ccCompileActionCompilationContexts = new ArrayList<>();
   private Set<PathFragment> looseIncludeDirs = ImmutableSet.of();
   private final List<PathFragment> systemIncludeDirs = new ArrayList<>();
   private final List<PathFragment> quoteIncludeDirs = new ArrayList<>();
@@ -283,6 +284,7 @@ public final class CcCompilationHelper {
   private String includePrefix = null;
 
   private CcCompilationContext ccCompilationContext;
+  private CcCompilationContext ccCompileActionCompilationContext;
 
   private final RuleErrorConsumer ruleErrorConsumer;
   private final ActionRegistry actionRegistry;
@@ -607,6 +609,15 @@ public final class CcCompilationHelper {
     return this;
   }
 
+  /** For adding CC compilation infos that affect compilation non-transitively, e.g: from dependencies. */
+  public CcCompilationHelper addCompileActionCcCompilationContexts(
+      Iterable<CcCompilationContext> ccCompileActionCompilationContexts) {
+    Iterables.addAll(
+        this.ccCompileActionCompilationContexts,
+        Preconditions.checkNotNull(ccCompileActionCompilationContexts));
+    return this;
+  }
+
   /**
    * Sets the given directories to by loose include directories that are only allowed to be
    * referenced when headers checking is {@link HeadersCheckingMode#LOOSE}.
@@ -761,7 +772,15 @@ public final class CcCompilationHelper {
       ruleErrorConsumer.ruleError("Either PIC or no PIC actions have to be created.");
     }
 
-    ccCompilationContext = initializeCcCompilationContext(ruleContext);
+    ccCompilationContext = initializeCcCompilationContext(ruleContext, ccCompilationContexts);
+    if (ccCompileActionCompilationContexts.isEmpty()) {
+      ccCompileActionCompilationContext = ccCompilationContext;
+    } else {
+      ImmutableList.Builder contexts = ImmutableList.builder();
+      contexts.addAll(ccCompilationContexts);
+      contexts.addAll(ccCompileActionCompilationContexts);
+      ccCompileActionCompilationContext = initializeCcCompilationContext(ruleContext, contexts.build());
+    }
 
     boolean compileHeaderModules = featureConfiguration.isEnabled(CppRuleClasses.HEADER_MODULES);
     Preconditions.checkState(
@@ -978,7 +997,7 @@ public final class CcCompilationHelper {
   }
 
   /** Create {@code CcCompilationContext} for cc compile action from generated inputs. */
-  private CcCompilationContext initializeCcCompilationContext(RuleContext ruleContext)
+  private CcCompilationContext initializeCcCompilationContext(RuleContext ruleContext, List<CcCompilationContext> compilationContexts)
       throws InterruptedException {
     CcCompilationContext.Builder ccCompilationContextBuilder =
         CcCompilationContext.builder(actionConstructionContext, configuration, label);
@@ -1020,7 +1039,7 @@ public final class CcCompilationHelper {
           publicHeaders.virtualToOriginalHeaders);
     }
 
-    ccCompilationContextBuilder.mergeDependentCcCompilationContexts(ccCompilationContexts);
+    ccCompilationContextBuilder.mergeDependentCcCompilationContexts(compilationContexts);
     mergeToolchainDependentCcCompilationContext(ccToolchain, ccCompilationContextBuilder);
 
     // But defines come after those inherited from deps.
@@ -1324,13 +1343,13 @@ public final class CcCompilationHelper {
    */
   private CcCompilationOutputs createCcCompileActions() throws RuleErrorException {
     CcCompilationOutputs.Builder result = CcCompilationOutputs.builder();
-    Preconditions.checkNotNull(ccCompilationContext);
+    Preconditions.checkNotNull(ccCompileActionCompilationContext);
 
     if (shouldProvideHeaderModules()) {
       Label moduleMapLabel =
-          Label.parseAbsoluteUnchecked(ccCompilationContext.getCppModuleMap().getName());
+          Label.parseAbsoluteUnchecked(ccCompileActionCompilationContext.getCppModuleMap().getName());
       Collection<Artifact> modules =
-          createModuleAction(result, ccCompilationContext.getCppModuleMap());
+          createModuleAction(result, ccCompileActionCompilationContext.getCppModuleMap());
       if (featureConfiguration.isEnabled(CppRuleClasses.HEADER_MODULE_CODEGEN)) {
         for (Artifact module : modules) {
           // TODO(djasper): Investigate whether we need to use a label separate from that of the
@@ -1363,7 +1382,7 @@ public final class CcCompilationHelper {
       CppCompileActionBuilder builder = initializeCompileAction(sourceArtifact);
 
       builder
-          .setSemantics(semantics)
+          .setCcCompilationContext(ccCompileActionCompilationContext)
           .addMandatoryInputs(additionalCompilationInputs)
           .addAdditionalIncludeScanningRoots(additionalIncludeScanningRoots);
 
@@ -1662,6 +1681,7 @@ public final class CcCompilationHelper {
     builder.setCoptsFilter(coptsFilter);
     builder.setFeatureConfiguration(featureConfiguration);
     builder.addExecutionInfo(executionInfo);
+    builder.setSemantics(semantics);
     return builder;
   }
 
@@ -1674,7 +1694,6 @@ public final class CcCompilationHelper {
     boolean pic = module.getFilename().contains(".pic.");
 
     CppCompileActionBuilder builder = initializeCompileAction(module);
-    builder.setSemantics(semantics);
     builder.setPicMode(pic);
     builder.setOutputs(
         actionConstructionContext,
@@ -1774,8 +1793,6 @@ public final class CcCompilationHelper {
       CcCompilationOutputs.Builder result, CppModuleMap cppModuleMap) throws RuleErrorException {
     Artifact moduleMapArtifact = cppModuleMap.getArtifact();
     CppCompileActionBuilder builder = initializeCompileAction(moduleMapArtifact);
-
-    builder.setSemantics(semantics);
 
     // A header module compile action is just like a normal compile action, but:
     // - the compiled source file is the module map

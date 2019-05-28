@@ -15,14 +15,19 @@
 package com.google.devtools.build.lib.bazel.rules.cpp;
 
 import static com.google.devtools.build.lib.packages.Attribute.attr;
+import static com.google.devtools.build.lib.packages.BuildType.LABEL_LIST;
 import static com.google.devtools.build.lib.packages.Type.BOOLEAN;
 
+import static com.google.devtools.build.lib.bazel.rules.cpp.BazelCppRuleClasses.DEPS_ALLOWED_RULES;
 import com.google.devtools.build.lib.analysis.BaseRuleClasses;
 import com.google.devtools.build.lib.analysis.RuleDefinition;
 import com.google.devtools.build.lib.analysis.RuleDefinitionEnvironment;
 import com.google.devtools.build.lib.bazel.rules.cpp.BazelCppRuleClasses.CcLibraryBaseRule;
 import com.google.devtools.build.lib.packages.RuleClass;
+import com.google.devtools.build.lib.packages.StarlarkProviderIdentifier;
+import com.google.devtools.build.lib.rules.cpp.CcInfo;
 import com.google.devtools.build.lib.rules.cpp.CppConfiguration;
+import com.google.devtools.build.lib.rules.cpp.CppFileTypes;
 
 /** Rule definition for the cc_library rule. */
 public final class BazelCcLibraryRule implements RuleDefinition {
@@ -33,6 +38,18 @@ public final class BazelCcLibraryRule implements RuleDefinition {
         // deps, data, linkopts, defines, srcs; override here too?
 
         .requiresConfigurationFragments(CppConfiguration.class)
+        /*<!-- #BLAZE_RULE($cc_rule).ATTRIBUTE(compile_only_deps) -->
+        The list of other libraries to be linked in to the binary target.
+        This allows control over the requirement set as to whether a dependency
+        should contribute to the interface or only compilations of a library
+        <p>These can be <code>cc_library</code>, <code>cc_inc_library</code>, or
+        <code>objc_library</code> targets.</p>
+        <!-- #END_BLAZE_RULE.ATTRIBUTE -->*/
+        .add(attr("compile_only_deps", LABEL_LIST)
+                  .allowedRuleClasses(DEPS_ALLOWED_RULES)
+                  .allowedFileTypes(CppFileTypes.LINKER_SCRIPT)
+                  .skipAnalysisTimeFileTypeCheck()
+                  .mandatoryProviders(StarlarkProviderIdentifier.forKey(CcInfo.PROVIDER.getKey())))
         /*<!-- #BLAZE_RULE(cc_library).ATTRIBUTE(alwayslink) -->
         If 1, any binary that depends (directly or indirectly) on this C++
         library will link in all the object files for the files listed in
