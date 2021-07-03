@@ -94,6 +94,7 @@ public class CppLinkActionBuilder {
   @Nullable private final CcToolchainProvider toolchain;
   private final FdoContext fdoContext;
   private Artifact interfaceOutput;
+  private final ImmutableList.Builder<Artifact> debugFileOutputs = ImmutableList.builder();
   /** Directory where toolchain stores language-runtime libraries (libstdc++, libc++ ...) */
   private PathFragment toolchainLibrariesSolibDir;
 
@@ -1203,6 +1204,11 @@ public class CppLinkActionBuilder {
    */
   public CppLinkActionBuilder setInterfaceOutput(Artifact interfaceOutput) {
     this.interfaceOutput = interfaceOutput;
+    return this;
+  }
+
+  public CppLinkActionBuilder addDebugFile(Artifact debugFile) {
+    this.debugFileOutputs.add(debugFile);
     return this;
   }
 
